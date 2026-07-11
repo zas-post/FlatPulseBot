@@ -1,17 +1,25 @@
 import asyncio
 import logging
 import sys
+import random  # 🔥 Добавили модуль для генерации случайных чисел
 
-from config.settings import TARGET_AVITO_URL, AVITO_CHECK_INTERVAL, ADMIN_IDS
+from config.settings import (
+    TARGET_AVITO_URL,
+    AVITO_CHECK_INTERVAL,
+    TARGET_CYAN_URL,
+    CYAN_CHECK_INTERVAL,
+    ADMIN_IDS,
+)
 from database.connection import init_db, filter_new_listings
 from scrapers.avito import AvitoScraper
+from scrapers.cyan import CyanScraper
 from bot.instance import bot, dp
 from bot.middlewares.auth import AuthMiddleware
 from bot.handlers.commands import router as commands_router
 from aiogram.exceptions import TelegramForbiddenError
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# Настройка хэндлеров логирования
+# Настройка логов
 stdout_handler = logging.StreamHandler(sys.stdout)
 stdout_handler.setLevel(logging.INFO)
 
@@ -26,29 +34,21 @@ logging.basicConfig(
 
 
 async def avito_parser_worker():
-    """Фоновый воркер для периодического парсинга Авито с рассылкой по семье"""
+    """Фоновый воркер для периодического парсинга Авито со случайным интервалом"""
     scraper = AvitoScraper()
-
     while True:
         if TARGET_AVITO_URL:
             logging.info("[Worker] Запуск плановой проверки Авито...")
             try:
                 raw_listings = await asyncio.to_thread(scraper.parse, TARGET_AVITO_URL)
-
                 if raw_listings:
                     new_items = filter_new_listings(raw_listings, source="avito")
-
                     if new_items:
                         logging.info(
-                            f"[Worker] Найдено {len(new_items)} новых объявлений!"
+                            f"[Worker] Авито: найдено {len(new_items)} новых объявлений!"
                         )
                         for item in new_items:
-                            msg = (
-                                f"🔥 <b>{item['title']}</b>\n"
-                                f"💰 Цена: {item['price']} руб."
-                            )
-
-                            # Красивая сетка кнопок
+                            msg = f"🔥 <b>[Авито] {item['title']}</b>\n💰 Цена: {item['price']} руб."
                             keyboard = InlineKeyboardMarkup(
                                 inline_keyboard=[
                                     [
@@ -68,8 +68,6 @@ async def avito_parser_worker():
                                     ],
                                 ]
                             )
-
-                            # Рассылаем каждому члену семьи лично
                             for user_id in ADMIN_IDS:
                                 try:
                                     await bot.send_message(
@@ -79,19 +77,91 @@ async def avito_parser_worker():
                                         reply_markup=keyboard,
                                     )
                                 except TelegramForbiddenError:
-                                    logging.warning(
-                                        f"[Worker] Пользователь {user_id} заблокировал бота."
-                                    )
+                                    pass
                                 except Exception as e:
                                     logging.error(
-                                        f"[Worker] Ошибка отправки пользователю {user_id}: {e}"
+                                        f"[Worker] Ошибка отправки Авито пользователю {user_id}: {e}"
                                     )
                     else:
-                        logging.info("[Worker] Новых объявлений не найдено.")
+                        logging.info("[Worker] Авито: новых объявлений не найдено.")
             except Exception as e:
                 logging.error(f"[Worker] Критическая ошибка в воркере Авито: {e}")
 
-        await asyncio.sleep(AVITO_CHECK_INTERVAL)
+        # 🔥 ОПТИМИЗАЦИЯ: Считаем плавающий интервал сна для Авито
+        # Берем базовый интервал (например, 900 сек) и добавляем/вычитаем случайное смещение от -120 до +120 секунд (2 минуты)
+        avito_sleep = AVITO_CHECK_INTERVAL + random.randint(-120, 120)
+        # На всякий случай страхуемся, чтобы интервал случайно не стал отрицательным или нулевым
+        avito_sleep = max(60, avito_sleep)
+
+        logging.info(
+            f"[Worker] Авито уходит в сон на {avito_sleep} сек (~{round(avito_sleep/60, 1)} мин)..."
+        )
+        await asyncio.sleep(avito_sleep)
+
+
+async def cyan_parser_worker():
+    """Фоновый воркер для периодического парсинга Циан со случайным интервалом"""
+    scraper = CyanScraper()
+    while True:
+        if TARGET_CYAN_URL:
+            logging.info("[Worker] Запуск плановой проверки Циан...")
+            try:
+                raw_listings = await asyncio.to_thread(scraper.parse, TARGET_CYAN_URL)
+                if raw_listings:
+                    new_items = filter_new_listings(raw_listings, source="cyan")
+                    if new_items:
+                        logging.info(
+                            f"[Worker] Циан: найдено {len(new_items)} новых объявлений!"
+                        )
+                        for item in new_items:
+                            msg = f"🔷 <b>[Циан] {item['title']}</b>\n💰 Цена: {item['price']} руб."
+                            keyboard = InlineKeyboardMarkup(
+                                inline_keyboard=[
+                                    [
+                                        InlineKeyboardButton(
+                                            text="🔗 На Циан", url=item["url"]
+                                        ),
+                                        InlineKeyboardButton(
+                                            text="❌ Удалить",
+                                            callback_data="delete_msg",
+                                        ),
+                                    ],
+                                    [
+                                        InlineKeyboardButton(
+                                            text="⭐️ В семейный чат",
+                                            callback_data="share_family",
+                                        )
+                                    ],
+                                ]
+                            )
+                            for user_id in ADMIN_IDS:
+                                try:
+                                    await bot.send_message(
+                                        chat_id=user_id,
+                                        text=msg,
+                                        parse_mode="HTML",
+                                        reply_markup=keyboard,
+                                    )
+                                except TelegramForbiddenError:
+                                    pass
+                                except Exception as e:
+                                    logging.error(
+                                        f"[Worker] Ошибка отправки Циан пользователю {user_id}: {e}"
+                                    )
+                    else:
+                        logging.info("[Worker] Циан: новых объявлений не найдено.")
+            except Exception as e:
+                logging.error(f"[Worker] Критическая ошибка в воркере Циан: {e}")
+
+        # 🔥 ОПТИМИЗАЦИЯ: Считаем плавающий интервал сна для Циан
+        # Используем такое же смещение в диапазоне +/- 2 минуты, чтобы развести тайминги с Авито
+        cyan_sleep = CYAN_CHECK_INTERVAL + random.randint(-120, 120)
+        cyan_sleep = max(60, cyan_sleep)
+
+        logging.info(
+            f"[Worker] Циан уходит в сон на {cyan_sleep} сек (~{round(cyan_sleep/60, 1)} мин)..."
+        )
+        await asyncio.sleep(cyan_sleep)
 
 
 async def main():
@@ -101,11 +171,12 @@ async def main():
     # 2. Регистрация кастомных Middleware для безопасности
     dp.message.middleware(AuthMiddleware())
 
-    # 3. Подключение обработчиков команд
+    # 3. Подключение обработчиков команд и кнопок
     dp.include_router(commands_router)
 
     # 4. Запуск фоновых задач
     asyncio.create_task(avito_parser_worker())
+    asyncio.create_task(cyan_parser_worker())
 
     # 5. Старт лонг-поллинга бота
     logging.info("Запуск лонг-поллинга Telegram бота...")
