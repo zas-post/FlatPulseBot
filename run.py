@@ -51,7 +51,15 @@ async def avito_parser_worker():
                                 f"[Worker] Авито: найдено {len(new_items)} новых объявлений!"
                             )
                             for item in new_items:
-                                msg = f"🔥 <b>[Авито] {item['title']}</b>\n💰 Цена: {item['price']} руб."
+                                # 🟢 СТИЛЬНЫЙ ВИЗУАЛ АВИТО
+                                msg = (
+                                    f"🟢 <b>[Новое на Авито]</b>\n"
+                                    f"───────────────────\n"
+                                    f"🏢 <b>Объект:</b> {item['title']}\n"
+                                    f"💰 <b>Стоимость:</b> <code>{item['price']} ₽</code>\n"
+                                    f"───────────────────\n"
+                                    f"🧭 <i>Статус: Доступно для связи</i>"
+                                )
                                 keyboard = InlineKeyboardMarkup(
                                     inline_keyboard=[
                                         [
@@ -103,7 +111,6 @@ async def avito_parser_worker():
 
 async def cyan_parser_worker():
     """Фоновый воркер для периодического парсинга Циан со случайным интервалом"""
-    # 🔥 ОПТИМИЗАЦИЯ: Даем Авито 15 секунд, чтобы захватить драйвер первым при холодном старте контейнера
     logging.info("[Worker] Ожидание разделения потоков на старте для Циан...")
     await asyncio.sleep(15)
 
@@ -123,7 +130,15 @@ async def cyan_parser_worker():
                                 f"[Worker] Циан: найдено {len(new_items)} новых объявлений!"
                             )
                             for item in new_items:
-                                msg = f"🔷 <b>[Циан] {item['title']}</b>\n💰 Цена: {item['price']} руб."
+                                # 🔷 СТИЛЬНЫЙ ВИЗУАЛ ЦИАН
+                                msg = (
+                                    f"🔷 <b>[Новое на Циан]</b>\n"
+                                    f"───────────────────\n"
+                                    f"🏢 <b>Объект:</b> {item['title']}\n"
+                                    f"💰 <b>Стоимость:</b> <code>{item['price']} ₽</code>\n"
+                                    f"───────────────────\n"
+                                    f"🧭 <i>Статус: Свежее предложение</i>"
+                                )
                                 keyboard = InlineKeyboardMarkup(
                                     inline_keyboard=[
                                         [
