@@ -1,0 +1,19 @@
+# Секреты и конфигурация (Самое важное!)
+.env
+
+# Виртуальное окружение Python
+.venv/
+venv/
+ENV/
+
+# База данных SQLite
+*.db
+*.sqlite3
+
+# Логи ошибок
+*.log
+
+# Кэш Python
+__pycache__/
+*.pyc
+.pytest_cache/

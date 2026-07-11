@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  bot:
+    build: .
+    container_name: flat_pulse_bot
+    restart: always
+    volumes:
+      - ./data:/app/data
+      - ./errors.log:/app/errors.log
+    environment:
+      - DATABASE_URL=sqlite:///app/data/flat_pulse.db
