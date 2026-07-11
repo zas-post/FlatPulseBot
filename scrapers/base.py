@@ -1,32 +1,35 @@
 import logging
 import undetected_chromedriver as uc
 
-
 class BaseScraper:
     def __init__(self):
-        # В инициализаторе ничего не храним, чтобы объект настроек не дублировался
         pass
 
     def get_clean_options(self):
-        """Каждый раз генерирует абсолютно новый и независимый объект настроек Chrome"""
+        """Генерирует новый независимый объект настроек Chrome"""
         options = uc.ChromeOptions()
 
-        # Бронированные настройки для стабильности внутри Docker контейнера
-        options.add_argument("--headless=new")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--blink-settings=imagesEnabled=false")
+        # Настройки для стабильности в Docker
+        options.add_argument('--headless=new')
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
+        options.add_argument('--blink-settings=imagesEnabled=false')
 
-        # Стратегия ленивой загрузки
-        options.page_load_strategy = "eager"
+        # 🔥 Защита от зависания процессов внутри контейнера
+        options.add_argument('--disable-gpu')
+        options.add_argument('--crash-dumps-dir=/tmp')
+
+        options.page_load_strategy = 'eager'
         return options
 
     def get_driver(self):
-        """Возвращает новый экземпляр драйвера со свежими настройками"""
+        """Возвращает новый экземпляр драйвера с защитой от зависания при старте"""
         try:
-            # Вызываем создание новых настроек при каждом открытии браузера
             current_options = self.get_clean_options()
-            driver = uc.Chrome(options=current_options)
+
+            # 🔥 Ставим жесткий таймаут запуска самого браузера (30 секунд вместо бесконечности)
+            driver = uc.Chrome(options=current_options, startup_timeout=30)
+
             driver.set_page_load_timeout(30)
             return driver
         except Exception as e:
