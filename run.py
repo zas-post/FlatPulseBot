@@ -100,67 +100,55 @@ async def avito_parser_worker():
 
 
 async def cyan_parser_worker():
-    """Фоновый воркер для периодического парсинга Циан со случайным интервалом"""
+    """Фоновый воркер для периодического парсинга Циан со случайным интервалом и ретраями"""
     scraper = CyanScraper()
     while True:
         if TARGET_CYAN_URL:
             logging.info("[Worker] Запуск плановой проверки Циан...")
-            try:
-                raw_listings = await asyncio.to_thread(scraper.parse, TARGET_CYAN_URL)
-                if raw_listings:
-                    new_items = filter_new_listings(raw_listings, source="cyan")
-                    if new_items:
-                        logging.info(
-                            f"[Worker] Циан: найдено {len(new_items)} новых объявлений!"
-                        )
-                        for item in new_items:
-                            msg = f"🔷 <b>[Циан] {item['title']}</b>\n💰 Цена: {item['price']} руб."
-                            keyboard = InlineKeyboardMarkup(
-                                inline_keyboard=[
-                                    [
-                                        InlineKeyboardButton(
-                                            text="🔗 На Циан", url=item["url"]
-                                        ),
-                                        InlineKeyboardButton(
-                                            text="❌ Удалить",
-                                            callback_data="delete_msg",
-                                        ),
-                                    ],
-                                    [
-                                        InlineKeyboardButton(
-                                            text="⭐️ В семейный чат",
-                                            callback_data="share_family",
-                                        )
-                                    ],
-                                ]
-                            )
-                            for user_id in ADMIN_IDS:
-                                try:
-                                    await bot.send_message(
-                                        chat_id=user_id,
-                                        text=msg,
-                                        parse_mode="HTML",
-                                        reply_markup=keyboard,
-                                    )
-                                except TelegramForbiddenError:
-                                    pass
-                                except Exception as e:
-                                    logging.error(
-                                        f"[Worker] Ошибка отправки Циан пользователю {user_id}: {e}"
-                                    )
-                    else:
-                        logging.info("[Worker] Циан: новых объявлений не найдено.")
-            except Exception as e:
-                logging.error(f"[Worker] Критическая ошибка в воркере Циан: {e}")
 
-        # 🔥 ОПТИМИЗАЦИЯ: Считаем плавающий интервал сна для Циан
-        # Используем такое же смещение в диапазоне +/- 2 минуты, чтобы развести тайминги с Авито
+            # 🔥 ДОБАВИЛИ: Защита в 3 попытки, как на Авито
+            for attempt in range(1, 4):
+                try:
+                    raw_listings = await asyncio.to_thread(scraper.parse, TARGET_CYAN_URL)
+                    if raw_listings:
+                        new_items = filter_new_listings(raw_listings, source="cyan")
+                        if new_items:
+                            logging.info(f"[Worker] Циан: найдено {len(new_items)} новых объявлений!")
+                            for item in new_items:
+                                msg = f"🔷 <b>[Циан] {item['title']}</b>\n💰 Цена: {item['price']} руб."
+                                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                                    [
+                                        InlineKeyboardButton(text="🔗 На Циан", url=item['url']),
+                                        InlineKeyboardButton(text="❌ Удалить", callback_data="delete_msg")
+                                    ],
+                                    [InlineKeyboardButton(text="⭐️ В семейный чат", callback_data="share_family")]
+                                ])
+                                for user_id in ADMIN_IDS:
+                                    try:
+                                        await bot.send_message(chat_id=user_id, text=msg, parse_mode="HTML", reply_markup=keyboard)
+                                    except TelegramForbiddenError:
+                                        pass
+                                    except Exception as e:
+                                        logging.error(f"[Worker] Ошибка отправки Циан пользователю {user_id}: {e}")
+                        else:
+                            logging.info("[Worker] Циан: новых объявлений не найдено.")
+
+                    # Если парсинг прошел успешно — выходим из цикла попыток
+                    break
+
+                except Exception as e:
+                    logging.error(f"[Worker] Циан: Ошибка на попытке {attempt}: {e}")
+                    if attempt < 3:
+                        logging.info("[Worker] Ожидание 10 секунд перед повторной попыткой Циан...")
+                        await asyncio.sleep(10)
+                    else:
+                        logging.error("[Worker] Все 3 попытки парсинга Циан провалились.")
+
+        # Плавающий интервал сна
         cyan_sleep = CYAN_CHECK_INTERVAL + random.randint(-120, 120)
         cyan_sleep = max(60, cyan_sleep)
 
-        logging.info(
-            f"[Worker] Циан уходит в сон на {cyan_sleep} сек (~{round(cyan_sleep/60, 1)} мин)..."
-        )
+        logging.info(f"[Worker] Циан уходит в сон на {cyan_sleep} сек (~{round(cyan_sleep/60, 1)} мин)...")
         await asyncio.sleep(cyan_sleep)
 
 
