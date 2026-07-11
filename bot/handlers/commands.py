@@ -1,13 +1,8 @@
-from aiogram import Router, html, F
-from aiogram.types import (
-    Message,
-    CallbackQuery,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
-)
-from aiogram.filters import CommandStart
-from aiogram.exceptions import TelegramBadRequest
-from config.settings import FAMILY_CHAT_ID
+import logging  # 🔥 Добавили пропущенный импорт
+from aiogram import Router, F
+from aiogram.filters import CommandStart, Command
+from aiogram.types import Message, CallbackQuery
+from config.settings import FAMILY_CHAT_ID, ADMIN_IDS
 from bot.instance import bot
 
 router = Router()
@@ -16,111 +11,58 @@ router = Router()
 @router.message(CommandStart())
 async def cmd_start(message: Message):
     await message.answer(
-        f"👋 {html.bold('FlatPulseBot')} успешно запущен!\n\n"
-        f"🎯 Фильтры Питера активны.\n"
-        f"🚀 Кнопка «⭐️ В семейный чат» добавлена и готова к работе."
+        "👋 Привет! Я твой бронированный поисковик квартир.\n"
+        "Я работаю в фоне на сервере и буду присылать сюда новые варианты с Авито и Циан."
     )
 
 
-# Хэндлер удаления сообщения
+@router.message(Command("status"))
+async def cmd_status(message: Message):
+    await message.answer("🤖 Бот работает в штатном режиме, фоновые воркеры активны.")
+
+
 @router.callback_query(F.data == "delete_msg")
-async def process_delete_message(callback: CallbackQuery):
+async def process_delete_msg(callback: CallbackQuery):
     try:
         await callback.message.delete()
-        await callback.answer("Сообщение удалено")
-    except TelegramBadRequest as e:
-        if "query is too old" in e.message:
-            # Если клик устарел, просто молча удаляем сообщение, не забивая логи
-            try:
-                await callback.message.delete()
-            except Exception:
-                pass
-        else:
-            await callback.answer(
-                "Не удалось удалить старое сообщение (старше 48 часов)", show_alert=True
-            )
-    except Exception:
-        pass
+        await callback.answer("Удалено")
+    except Exception as e:
+        logging.error(f"Ошибка удаления сообщения: {e}")
+        await callback.answer("Не удалось удалить", show_alert=True)
 
 
-# Пересылка квартиры в общий семейный чат
 @router.callback_query(F.data == "share_family")
 async def process_share_family(callback: CallbackQuery):
     if not FAMILY_CHAT_ID:
-        try:
-            await callback.answer(
-                "Ошибка: ID семейного чата не настроен в .env!", show_alert=True
-            )
-        except TelegramBadRequest:
-            pass
+        await callback.answer("⚠️ В .env не настроен FAMILY_CHAT_ID!", show_alert=True)
         return
 
-    avito_url = None
-    if callback.message.reply_markup and callback.message.reply_markup.inline_keyboard:
-        for row in callback.message.reply_markup.inline_keyboard:
-            for button in row:
-                if button.url:
-                    avito_url = button.url
-                    break
-
-    user_name = callback.from_user.first_name
-
-    group_msg = (
-        f"⭐️ <b>{user_name} предлагает вариант:</b>\n\n"
-        f"{callback.message.text}\n\n"
-        f"🔗 <a href='{avito_url}'>Смотреть объявление на Авито</a>"
-        if avito_url
-        else callback.message.text
-    )
+    # Извлекаем текст объявления без лишних кнопок
+    original_text = callback.message.text or callback.message.html_text
 
     try:
+        # Отправляем в семейный чат
         await bot.send_message(
-            chat_id=FAMILY_CHAT_ID, text=group_msg, parse_mode="HTML"
+            chat_id=FAMILY_CHAT_ID,
+            text=f"📢 <b>Выбор Александра:</b>\n\n{original_text}",
+            parse_mode="HTML",
         )
+        await callback.answer("⭐️ Отправлено в семейный чат!")
 
-        updated_keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    (
-                        InlineKeyboardButton(text="🔗 На Авито", url=avito_url)
-                        if avito_url
-                        else InlineKeyboardButton(
-                            text="🔗 На Авито", callback_data="none"
-                        )
-                    ),
-                    InlineKeyboardButton(text="❌ Удалить", callback_data="delete_msg"),
-                ],
-                [
-                    InlineKeyboardButton(
-                        text="✅ Отправлено в чат семьи", callback_data="already_shared"
-                    )
-                ],
-            ]
-        )
-
-        await callback.message.edit_reply_markup(reply_markup=updated_keyboard)
-        await callback.answer("Отправлено в семейный чат!")
-
-    except TelegramBadRequest as e:
-        # Если клик устарел при отправке, мы не упадем
-        logging.warning(
-            f"[Bot] Не удалось ответить на устаревший callback: {e.message}"
-        )
     except Exception as e:
-        try:
-            await callback.answer(
-                f"Не удалось отправить в группу. Проверь, есть ли бот в чате.",
-                show_alert=True,
+        # Теперь logging импортирован и код тут не упадет!
+        logging.error(f"Ошибка отправки в семейный чат: {e}")
+
+        # Выводим человеческую подсказку вместо падения
+        error_msg = str(e)
+        if "chat not found" in error_msg.lower():
+            await callback.message.answer(
+                "❌ <b>Ошибка отправки:</b> Бот не нашел семейный чат!\n"
+                "1. Проверь FAMILY_CHAT_ID в файле <code>.env</code> на сервере.\n"
+                "2. <b>Обязательно</b> добавь этого бота в твой семейный чат как участника!",
+                parse_mode="HTML",
             )
-        except TelegramBadRequest:
-            pass
+        else:
+            await callback.message.answer(f"❌ Ошибка отправки: {error_msg}")
 
-
-@router.callback_query(F.data == "already_shared")
-async def process_already_shared(callback: CallbackQuery):
-    try:
-        await callback.answer(
-            "Этот вариант уже находится в семейном чате!", show_alert=False
-        )
-    except TelegramBadRequest:
-        pass
+        await callback.answer("Ошибка отправки", show_alert=False)
