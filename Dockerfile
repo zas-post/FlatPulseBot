@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 
-# Устанавливаем системные зависимости и настраиваем современный репозиторий Google Chrome
+# Устанавливаем системные зависимости и настраиваем репозиторий Google Chrome
 RUN apt-get update && apt-get install -y \
     wget \
     curl \
@@ -9,8 +9,8 @@ RUN apt-get update && apt-get install -y \
     fonts-liberation \
     --no-install-recommends \
     && mkdir -p /etc/apt/keyrings \
-    && curl -fsSL https://dl-ssl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /etc/apt/keyrings/google-chrome.gpg \
-    && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
+    && curl -fsSL https://dl-ssl.google.com/linux/linux_signing_key.pub > /etc/apt/keyrings/google-chrome.asc \
+    && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.asc] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
     && apt-get update \
     && apt-get install -y google-chrome-stable \
     && apt-get clean \
