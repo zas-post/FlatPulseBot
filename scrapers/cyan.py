@@ -6,76 +6,90 @@ from scrapers.base import BaseScraper
 
 class CyanScraper(BaseScraper):
     def parse(self, url: str) -> list:
-        """Парсинг первой страницы фильтра Циан с обходом таймаутов"""
+        """Парсинг Циан на основе универсального поиска целевых ссылок"""
         listings = []
         driver = None
 
         try:
             driver = self.get_driver()
-            logging.info("[Cyan Scraper] Открытие страницы Циан...")
+
+            # 🔥 МАСКИРОВКА: Подменяем User-Agent на человеческий, чтобы обойти базовый фрод Циана
+            driver.execute_cdp_cmd(
+                "Network.setUserAgentOverride",
+                {
+                    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+                },
+            )
+
+            logging.info("[Cyan Scraper] Открытие страницы Циан с маскировкой...")
             driver.get(url)
 
-            # Даем скриптам Циан 5 секунд на подгрузку динамического контента
-            time.sleep(5)
+            # Даем скриптам Циан чуть больше времени (7 секунд) на прогрузку
+            time.sleep(7)
 
             soup = BeautifulSoup(driver.page_source, "html.parser")
 
-            # Находим карточки объявлений (Циан использует тег article для предложений)
-            cards = soup.find_all("article", data_name="CardComponent")
+            # 🔥 УНИВЕРСАЛЬНЫЙ ПОДХОД: Ищем абсолютно все ссылки на странице
+            all_links = soup.find_all("a", href=True)
 
-            if not cards:
-                # Резервный поиск по подстроке классов, если Циан обновит data-атрибуты
-                cards = soup.find_all("div", class_=lambda c: c and "general-card" in c)
+            # Отбираем только те ссылки, которые ведут на карточки квартир (rent/flat или sale/flat)
+            # Циан может использовать как полные, так и относительные ссылки
+            cyan_flat_links = []
+            for a in all_links:
+                href = a["href"]
+                if "/flat/" in href and ("/rent/" in href or "/sale/" in href):
+                    # Очищаем ссылку от мусорных query-параметров отслеживания (?cdn=... и т.д.)
+                    clean_href = href.split("?")[0]
+                    full_url = (
+                        clean_href
+                        if clean_href.startswith("http")
+                        else f"https://spb.cian.ru{clean_href}"
+                    )
 
-            # 🔥 Лог для диагностики: проверяем, видит ли браузер квартиры на странице
+                    if full_url not in cyan_flat_links:
+                        cyan_flat_links.append((full_url, a))
+
             logging.info(
-                f"[Cyan Scraper] Найдено {len(cards)} карточек на странице Циан"
+                f"[Cyan Scraper] Поиск по паттерну ссылок: найдено {len(cyan_flat_links)} уникальных предложений"
             )
 
-            for card in cards:
+            # Собираем данные из найденных блоков ссылок
+            for item_url, link_element in cyan_flat_links:
                 try:
-                    # 1. Поиск ссылки и заголовка
-                    link_element = card.find(
-                        "a", class_=lambda c: c and "header" in c
-                    ) or card.find("a")
-                    if not link_element or "href" not in link_element.attrs:
-                        continue
-
-                    href = link_element["href"]
-                    # Исправляем относительные ссылки, если они есть
-                    item_url = (
-                        href
-                        if href.startswith("http")
-                        else f"https://spb.cian.ru{href}"
+                    # Пытаемся найти заголовок и цену внутри родительского контейнера этой ссылки
+                    # Поднимаемся на несколько уровней вверх к карточке
+                    parent_card = link_element.find_parent(
+                        "div", class_=lambda c: c is not None
                     )
 
-                    # Заголовок (например, "2-комн. кв., 56 м²")
-                    title_element = (
-                        card.find("span", data_mark="OfferTitle") or link_element
-                    )
-                    title = (
-                        title_element.get_text(strip=True)
-                        if title_element
-                        else "Квартира на Циан"
-                    )
+                    title = "Квартира на Циан"
+                    price = "Цена по запросу"
 
-                    # 2. Поиск цены
-                    price_element = card.find(
-                        "span", data_mark="MainPrice"
-                    ) or card.find("span", class_=lambda c: c and "price" in c)
-                    price = (
-                        price_element.get_text(strip=True)
-                        if price_element
-                        else "Цена по запросу"
-                    )
+                    if parent_card:
+                        # Ищем текст заголовка (обычно содержит "кв." или количество комнат/метраж)
+                        text_nodes = parent_card.find_all(string=True)
+                        for text in text_nodes:
+                            t_clean = text.strip()
+                            if "кв." in t_clean or "м²" in t_clean:
+                                title = t_clean
+                                break
 
-                    # Очищаем цену от лишних символов для красоты
-                    price = price.replace("₽/мес.", "").replace("₽", "").strip()
+                        # Ищем цену (ищем строку, где есть знак рубля или ₽)
+                        for text in text_nodes:
+                            p_clean = text.strip()
+                            if "₽" in p_clean or "руб" in p_clean:
+                                # Очищаем строку цены для красоты
+                                price = (
+                                    p_clean.replace("₽/мес.", "")
+                                    .replace("₽", "")
+                                    .strip()
+                                )
+                                break
 
                     listings.append({"title": title, "price": price, "url": item_url})
                 except Exception as card_error:
                     logging.debug(
-                        f"[Cyan Scraper] Ошибка разбора отдельной карточки: {card_error}"
+                        f"[Cyan Scraper] Ошибка разбора элемента: {card_error}"
                     )
                     continue
 
