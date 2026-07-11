@@ -4,30 +4,29 @@ import undetected_chromedriver as uc
 
 class BaseScraper:
     def __init__(self):
-        self.options = uc.ChromeOptions()
+        # В инициализаторе ничего не храним, чтобы объект настроек не дублировался
+        pass
 
-        # 🔥 КРИТИЧЕСКИЕ НАСТРОЙКИ ДЛЯ СТАБИЛЬНОСТИ В DOCKER
-        self.options.add_argument(
-            "--headless=new"
-        )  # Запуск без графического окна (важно для Linux/Docker)
-        self.options.add_argument(
-            "--no-sandbox"
-        )  # Разрешаем запуск под root-пользователем в контейнере
-        self.options.add_argument(
-            "--disable-dev-shm-usage"
-        )  # Используем общую память диска вместо /dev/shm (защита от вылета по памяти)
-        self.options.add_argument(
-            "--blink-settings=imagesEnabled=false"
-        )  # Отключаем картинки для ускорения загрузки и экономии трафика
+    def get_clean_options(self):
+        """Каждый раз генерирует абсолютно новый и независимый объект настроек Chrome"""
+        options = uc.ChromeOptions()
 
-        # Защита от зависания рендерера страницы
-        self.options.page_load_strategy = "eager"
+        # Бронированные настройки для стабильности внутри Docker контейнера
+        options.add_argument("--headless=new")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--blink-settings=imagesEnabled=false")
+
+        # Стратегия ленивой загрузки
+        options.page_load_strategy = "eager"
+        return options
 
     def get_driver(self):
-        """Возвращает новый чистый экземпляр драйвера"""
+        """Возвращает новый экземпляр драйвера со свежими настройками"""
         try:
-            # На сервере всегда используем headless
-            driver = uc.Chrome(options=self.options)
+            # Вызываем создание новых настроек при каждом открытии браузера
+            current_options = self.get_clean_options()
+            driver = uc.Chrome(options=current_options)
             driver.set_page_load_timeout(30)
             return driver
         except Exception as e:
