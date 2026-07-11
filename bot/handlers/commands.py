@@ -66,3 +66,11 @@ async def process_share_family(callback: CallbackQuery):
             await callback.message.answer(f"❌ Ошибка отправки: {error_msg}")
 
         await callback.answer("Ошибка отправки", show_alert=False)
+
+
+# 🔥 ВРЕМЕННЫЙ ХЕНДЛЕР: ловит вообще всё во всех чатах и пишет ID в консоль
+@router.message()
+async def catch_all_id(message: Message):
+    logging.info(
+        f"\n{'='*50}\nПЕРЕХВАЧЕН ID ЧАТА!\nНазвание: {message.chat.title or 'Личка'}\nID чата: {message.chat.id}\n{'='*50}\n"
+    )
