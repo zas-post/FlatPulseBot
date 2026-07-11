@@ -1,5 +1,6 @@
 import logging
 import time
+import re
 from bs4 import BeautifulSoup
 from scrapers.base import BaseScraper
 
@@ -13,7 +14,7 @@ class CyanScraper(BaseScraper):
         try:
             driver = self.get_driver()
 
-            # 🔥 МАСКИРОВКА: Подменяем User-Agent на человеческий, чтобы обойти базовый фрод Циана
+            # Маскировка под реального пользователя
             driver.execute_cdp_cmd(
                 "Network.setUserAgentOverride",
                 {
@@ -24,21 +25,15 @@ class CyanScraper(BaseScraper):
             logging.info("[Cyan Scraper] Открытие страницы Циан с маскировкой...")
             driver.get(url)
 
-            # Даем скриптам Циан чуть больше времени (7 секунд) на прогрузку
             time.sleep(7)
 
             soup = BeautifulSoup(driver.page_source, "html.parser")
-
-            # 🔥 УНИВЕРСАЛЬНЫЙ ПОДХОД: Ищем абсолютно все ссылки на странице
             all_links = soup.find_all("a", href=True)
 
-            # Отбираем только те ссылки, которые ведут на карточки квартир (rent/flat или sale/flat)
-            # Циан может использовать как полные, так и относительные ссылки
             cyan_flat_links = []
             for a in all_links:
                 href = a["href"]
                 if "/flat/" in href and ("/rent/" in href or "/sale/" in href):
-                    # Очищаем ссылку от мусорных query-параметров отслеживания (?cdn=... и т.д.)
                     clean_href = href.split("?")[0]
                     full_url = (
                         clean_href
@@ -46,18 +41,15 @@ class CyanScraper(BaseScraper):
                         else f"https://spb.cian.ru{clean_href}"
                     )
 
-                    if full_url not in cyan_flat_links:
+                    if full_url not in [x[0] for x in cyan_flat_links]:
                         cyan_flat_links.append((full_url, a))
 
             logging.info(
                 f"[Cyan Scraper] Поиск по паттерну ссылок: найдено {len(cyan_flat_links)} уникальных предложений"
             )
 
-            # Собираем данные из найденных блоков ссылок
             for item_url, link_element in cyan_flat_links:
                 try:
-                    # Пытаемся найти заголовок и цену внутри родительского контейнера этой ссылки
-                    # Поднимаемся на несколько уровней вверх к карточке
                     parent_card = link_element.find_parent(
                         "div", class_=lambda c: c is not None
                     )
@@ -66,7 +58,6 @@ class CyanScraper(BaseScraper):
                     price = "Цена по запросу"
 
                     if parent_card:
-                        # Ищем текст заголовка (обычно содержит "кв." или количество комнат/метраж)
                         text_nodes = parent_card.find_all(string=True)
                         for text in text_nodes:
                             t_clean = text.strip()
@@ -74,11 +65,9 @@ class CyanScraper(BaseScraper):
                                 title = t_clean
                                 break
 
-                        # Ищем цену (ищем строку, где есть знак рубля или ₽)
                         for text in text_nodes:
                             p_clean = text.strip()
                             if "₽" in p_clean or "руб" in p_clean:
-                                # Очищаем строку цены для красоты
                                 price = (
                                     p_clean.replace("₽/мес.", "")
                                     .replace("₽", "")
@@ -86,7 +75,19 @@ class CyanScraper(BaseScraper):
                                 )
                                 break
 
-                    listings.append({"title": title, "price": price, "url": item_url})
+                    # 🔥 РЕШЕНИЕ: Вытаскиваем ID объявления из ссылки (ищем цифры в URL)
+                    # Например из https://spb.cian.ru/rent/flat/304481235/ заберем 304481235
+                    id_match = re.search(r"/flat/(\d+)/", item_url)
+                    item_id = id_match.group(1) if id_match else item_url
+
+                    listings.append(
+                        {
+                            "id": item_id,  # 🔥 Теперь этот ключ есть, и filter_new_listings отработает штатно!
+                            "title": title,
+                            "price": price,
+                            "url": item_url,
+                        }
+                    )
                 except Exception as card_error:
                     logging.debug(
                         f"[Cyan Scraper] Ошибка разбора элемента: {card_error}"
