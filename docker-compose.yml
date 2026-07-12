@@ -3,8 +3,9 @@ services:
     build: .
     container_name: flat_pulse_bot
     restart: always
-    volumes:
-      - ./flat_pulse.db:/app/flat_pulse.db
-      - ./errors.log:/app/errors.log
+    shm_size: '512mb'  # 🔥 Увеличиваем размер разделяемой памяти для стабильной работы Chrome
     env_file:
       - .env
+    volumes:
+      - ./database:/app/database  # Сохраняем базу данных при перезапусках контейнера
+      - ./errors.log:/app/errors.log  # Пробрасываем лог ошибок для удобного чтения
