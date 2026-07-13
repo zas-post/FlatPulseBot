@@ -7,7 +7,7 @@ from scrapers.base import BaseScraper
 
 class CyanScraper(BaseScraper):
     def parse(self, url: str) -> list:
-        """Парсинг Циан на основе универсального поиска целевых ссылок с фильтрацией по метро"""
+        """Парсинг Циан на основе универсального поиска целевых ссылок"""
         listings = []
         driver = None
 
@@ -55,28 +55,9 @@ class CyanScraper(BaseScraper):
 
                     title = "Квартира на Циан"
                     price = "Цена по запросу"
-                    skip_by_metro = False
 
                     if parent_card:
                         text_nodes = parent_card.find_all(string=True)
-
-                        # 🔥 Фильтрация по метро (строго до 15 минут)
-                        for text in text_nodes:
-                            t_clean = text.strip()
-                            if "мин" in t_clean.lower():
-                                # Чистый синтаксис регулярного выражения
-                                minutes_match = re.search(r"\d+", t_clean)
-                                if minutes_match:
-                                    minutes = int(minutes_match.group(0))
-                                    if minutes > 15:
-                                        skip_by_metro = True
-                                        break
-
-                        if skip_by_metro:
-                            logging.info(
-                                f"[Cyan Scraper] Пропуск объекта (далеко от метро: {minutes} мин) -> {item_url}"
-                            )
-                            continue
 
                         # Сбор заголовка
                         for text in text_nodes:
