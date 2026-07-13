@@ -1,0 +1,27 @@
+# Игнорируем кэш Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Игнорируем логи
+*.log
+errors.log
+
+# Игнорируем базу данных (чтобы не затереть серверную)
+database/
+*.db
+*.sqlite3
+
+# Игнорируем папки систем контроля версий и окружения
+.git
+.gitignore
+.env
+.venv
+venv/
+ENV/
+
+# Игнорируем настройки IDE
+.idea/
+.vscode/
