@@ -4,6 +4,7 @@ import re
 from bs4 import BeautifulSoup
 from scrapers.base import BaseScraper
 
+
 class CyanScraper(BaseScraper):
     def parse(self, url: str) -> list:
         """Парсинг Циан на основе универсального поиска целевых ссылок с фильтрацией по метро"""
@@ -43,7 +44,7 @@ class CyanScraper(BaseScraper):
                         cyan_flat_links.append((full_url, a))
 
             logging.info(
-                f"[Cyan Scraper] Поиск по паттерну ссылок: найдено {len(cyan_flat_links)} unique предложения"
+                f"[Cyan Scraper] Поиск по паттерну ссылок: найдено {len(cyan_flat_links)} уникальных предложений"
             )
 
             for item_url, link_element in cyan_flat_links:
@@ -59,19 +60,23 @@ class CyanScraper(BaseScraper):
                     if parent_card:
                         text_nodes = parent_card.find_all(string=True)
 
-                        # 🔥 Исправленная фильтрация по времени до метро (> 15 минут)
+                        # 🔥 Полностью исправленная фильтрация по метро (порог строго 15 минут)
                         for text in text_nodes:
                             t_clean = text.strip()
                             if "мин" in t_clean.lower():
-                                minutes_match = re.search(r'(\d+)', t_clean) # 🔥 Фикс тут: синтаксис теперь верный
+                                minutes_match = re.search(
+                                    r"\d+", t_clean
+                                )  # 🎯 Четкий фикс синтаксиса без лишних скобок
                                 if minutes_match:
-                                    minutes = int(minutes_match.group(1))
+                                    minutes = int(minutes_match.group(0))
                                     if minutes > 15:
                                         skip_by_metro = True
                                         break
 
                         if skip_by_metro:
-                            logging.info(f"[Cyan Scraper] Пропуск объекта (далеко от метро: {item_url})")
+                            logging.info(
+                                f"[Cyan Scraper] Пропуск объекта (далеко от метро: {minutes} мин) -> {item_url}"
+                            )
                             continue
 
                         # Сбор заголовка
