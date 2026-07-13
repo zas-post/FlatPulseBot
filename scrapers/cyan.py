@@ -60,13 +60,12 @@ class CyanScraper(BaseScraper):
                     if parent_card:
                         text_nodes = parent_card.find_all(string=True)
 
-                        # 🔥 Полностью исправленная фильтрация по метро (порог строго 15 минут)
+                        # 🔥 Фильтрация по метро (строго до 15 минут)
                         for text in text_nodes:
                             t_clean = text.strip()
                             if "мин" in t_clean.lower():
-                                minutes_match = re.search(
-                                    r"\d+", t_clean
-                                )  # 🎯 Четкий фикс синтаксиса без лишних скобок
+                                # Чистый синтаксис регулярного выражения
+                                minutes_match = re.search(r"\d+", t_clean)
                                 if minutes_match:
                                     minutes = int(minutes_match.group(0))
                                     if minutes > 15:
