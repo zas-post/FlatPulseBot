@@ -43,7 +43,7 @@ class CyanScraper(BaseScraper):
                         cyan_flat_links.append((full_url, a))
 
             logging.info(
-                f"[Cyan Scraper] Поиск по паттерну ссылок: найдено {len(cyan_flat_links)} уникальных предложений"
+                f"[Cyan Scraper] Поиск по паттерну ссылок: найдено {len(cyan_flat_links)} unique предложения"
             )
 
             for item_url, link_element in cyan_flat_links:
@@ -59,11 +59,11 @@ class CyanScraper(BaseScraper):
                     if parent_card:
                         text_nodes = parent_card.find_all(string=True)
 
-                        # 🔥 Фильтрация по времени до метро (> 15 минут)
+                        # 🔥 Исправленная фильтрация по времени до метро (> 15 минут)
                         for text in text_nodes:
                             t_clean = text.strip()
                             if "мин" in t_clean.lower():
-                                minutes_match = re.search(r('(\d+)', t_clean)
+                                minutes_match = re.search(r'(\d+)', t_clean) # 🔥 Фикс тут: синтаксис теперь верный
                                 if minutes_match:
                                     minutes = int(minutes_match.group(1))
                                     if minutes > 15:
