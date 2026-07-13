@@ -2,6 +2,7 @@ import asyncio
 import logging
 import sys
 import random
+from logging.handlers import RotatingFileHandler
 
 from config.settings import (
     TARGET_AVITO_URL,
@@ -19,11 +20,19 @@ from bot.handlers.commands import router as commands_router
 from aiogram.exceptions import TelegramForbiddenError
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# Настройка логов
+# Настройка вывода логов в консоль Docker
 stdout_handler = logging.StreamHandler(sys.stdout)
 stdout_handler.setLevel(logging.INFO)
 
-file_handler = logging.FileHandler("errors.log", mode="a", encoding="utf-8")
+# 🔥 НАСТРОЙКА ЛОГ-РОТАЦИИ ДЛЯ errors.log
+# Файл будет весить максимум 5 МБ, и бот будет хранить не более 3 старых копий.
+file_handler = RotatingFileHandler(
+    "errors.log",
+    mode="a",
+    maxBytes=5 * 1024 * 1024,  # 5 Мегабайт
+    backupCount=3,  # Хранить errors.log.1, errors.log.2, errors.log.3
+    encoding="utf-8",
+)
 file_handler.setLevel(logging.ERROR)
 
 logging.basicConfig(
