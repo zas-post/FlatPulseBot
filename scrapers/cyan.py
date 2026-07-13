@@ -4,17 +4,15 @@ import re
 from bs4 import BeautifulSoup
 from scrapers.base import BaseScraper
 
-
 class CyanScraper(BaseScraper):
     def parse(self, url: str) -> list:
-        """Парсинг Циан на основе универсального поиска целевых ссылок"""
+        """Парсинг Циан на основе универсального поиска целевых ссылок с фильтрацией по метро"""
         listings = []
         driver = None
 
         try:
             driver = self.get_driver()
 
-            # Маскировка под реального пользователя
             driver.execute_cdp_cmd(
                 "Network.setUserAgentOverride",
                 {
@@ -56,15 +54,34 @@ class CyanScraper(BaseScraper):
 
                     title = "Квартира на Циан"
                     price = "Цена по запросу"
+                    skip_by_metro = False
 
                     if parent_card:
                         text_nodes = parent_card.find_all(string=True)
+
+                        # 🔥 Фильтрация по времени до метро (> 15 минут)
+                        for text in text_nodes:
+                            t_clean = text.strip()
+                            if "мин" in t_clean.lower():
+                                minutes_match = re.search(r('(\d+)', t_clean)
+                                if minutes_match:
+                                    minutes = int(minutes_match.group(1))
+                                    if minutes > 15:
+                                        skip_by_metro = True
+                                        break
+
+                        if skip_by_metro:
+                            logging.info(f"[Cyan Scraper] Пропуск объекта (далеко от метро: {item_url})")
+                            continue
+
+                        # Сбор заголовка
                         for text in text_nodes:
                             t_clean = text.strip()
                             if "кв." in t_clean or "м²" in t_clean:
                                 title = t_clean
                                 break
 
+                        # Сбор цены
                         for text in text_nodes:
                             p_clean = text.strip()
                             if "₽" in p_clean or "руб" in p_clean:
@@ -75,14 +92,12 @@ class CyanScraper(BaseScraper):
                                 )
                                 break
 
-                    # 🔥 РЕШЕНИЕ: Вытаскиваем ID объявления из ссылки (ищем цифры в URL)
-                    # Например из https://spb.cian.ru/rent/flat/304481235/ заберем 304481235
                     id_match = re.search(r"/flat/(\d+)/", item_url)
                     item_id = id_match.group(1) if id_match else item_url
 
                     listings.append(
                         {
-                            "id": item_id,  # 🔥 Теперь этот ключ есть, и filter_new_listings отработает штатно!
+                            "id": item_id,
                             "title": title,
                             "price": price,
                             "url": item_url,
