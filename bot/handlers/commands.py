@@ -1,8 +1,13 @@
 import logging
 from aiogram import Router, F
-from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, CallbackQuery
-from config.settings import ADMIN_IDS, FAMILY_CHAT_ID
+from aiogram.filters import CommandStart
+from aiogram.types import (
+    Message,
+    CallbackQuery,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+)
+from config.settings import FAMILY_CHAT_ID
 from bot.instance import bot
 
 router = Router()
@@ -22,34 +27,135 @@ async def cmd_start(message: Message):
 
 @router.callback_query(F.data == "delete_msg")
 async def delete_msg_callback(callback: CallbackQuery):
-    """🔥 ЮЗАБИЛИТИ: Вместо удаления полностью сворачивает карточку, сохраняя структуру чата"""
+    """🔥 ЮЗАБИЛИТИ: Сворачивает карточку в красивую информативную строку с кнопкой восстановления"""
     try:
+        old_html = callback.message.html_text or ""
         old_text = callback.message.text or ""
 
-        # Интеллектуально вытаскиваем источник и цену из старого сообщения для красивого лога
+        # Определяем источник
         source = "Авито" if "Авито" in old_text else "Циан"
 
+        # Извлекаем заголовок объекта (количество комнат и площадь) из третьей строки сообщения
+        title = "Объект"
         price = "Цена по запросу"
-        for line in old_text.split("\n"):
+
+        lines = old_text.split("\n")
+        for line in lines:
+            if "Объект:" in line:
+                title = line.replace("Объект:", "").strip()
             if "Стоимость:" in line:
                 price = line.replace("Стоимость:", "").strip()
-                break
 
-        archived_text = f"⚪️ <b>Объявление скрыто</b> (<i>{source} / {price}</i>)"
-
-        # Редактируем сообщение: меняем простыню текста на одну строку и убираем кнопки
-        await callback.message.edit_text(
-            text=archived_text, parse_mode="HTML", reply_markup=None
+        # Формируем компактный, но очень читаемый текст
+        archived_text = (
+            f"⚪️ <b>Объявление скрыто</b> (<i>{source} / {title} / {price}</i>)"
         )
-        await callback.answer("Объявление отправлено в архив")
+
+        # Прячем старый HTML-текст прямо в callback_data кнопки восстановления!
+        # Telegram ограничивает callback_data до 64 байт, поэтому весь текст туда не влезет.
+        # Чтобы обойти это ограничение без баз данных, мы оставим оригинальный URL в кнопке,
+        # изменив разметку, либо сделаем чистый инлайн-переключатель.
+
+        # Самый надежный способ вернуть всё назад: извлекаем URL из первой кнопки старой клавиатуры
+        original_url = ""
+        if (
+            callback.message.reply_markup
+            and callback.message.reply_markup.inline_keyboard
+        ):
+            original_url = callback.message.reply_markup.inline_keyboard[0][0].url
+
+        # Создаем кнопку «Восстановить», в которую зашьем только источник и цену, чтобы не перегрузить лимит
+        inline_back = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    (
+                        InlineKeyboardButton(text="🔗 Ссылка", url=original_url)
+                        if original_url
+                        else InlineKeyboardButton(
+                            text="🚫 Нет ссылки", callback_data="none"
+                        )
+                    ),
+                    InlineKeyboardButton(
+                        text="↩️ Восстановить текст",
+                        callback_data=f"restore_{source.lower()}",
+                    ),
+                ]
+            ]
+        )
+
+        await callback.message.edit_text(
+            text=archived_text, parse_mode="HTML", reply_markup=inline_back
+        )
+        await callback.answer("Объявление свернуто")
     except Exception as e:
         logging.error(f"[Bot] Ошибка архивации сообщения: {e}")
-        # Если вдруг отредактировать не получилось (например, прошло много времени), просто удаляем
-        try:
-            await callback.message.delete()
-        except Exception:
-            pass
         await callback.answer()
+
+
+@router.callback_query(F.data.startswith("restore_"))
+async def restore_msg_callback(callback: CallbackQuery):
+    """🔥 ЮЗАБИЛИТИ: Восстанавливает стандартный шаблон сообщения, если скрыли случайно"""
+    try:
+        # Из callback_data понимаем, какой это был источник
+        source_type = callback.data.split("_")[1]
+        source_title = "Новое на Авито" if source_type == "avito" else "Новое на Циан"
+        emoji = "🟢" if source_type == "avito" else "🔷"
+
+        # Вытаскиваем параметры из нашей же свернутой строчки
+        current_text = callback.message.text or ""
+        # Строка выглядит так: "Объявление скрыто (Авито / 2-к. квартира, 54 м² / 6 500 000 ₽)"
+        try:
+            parts = current_text.split("/")
+            title = parts[1].strip()
+            price = parts[2].replace(")", "").strip()
+        except Exception:
+            title = "Квартира"
+            price = "Цена по запросу"
+
+        # Извлекаем ссылку обратно из кнопки, которая сейчас на экране
+        original_url = ""
+        if (
+            callback.message.reply_markup
+            and callback.message.reply_markup.inline_keyboard
+        ):
+            original_url = callback.message.reply_markup.inline_keyboard[0][0].url
+
+        # Собираем исходный красивый шаблон обратно
+        restored_text = (
+            f"{emoji} <b>[{source_title}]</b>\n"
+            f"───────────────────\n"
+            f"🏢 <b>Объект:</b> {title}\n"
+            f"💰 <b>Стоимость:</b> <code>{price}</code>\n"
+            f"───────────────────\n"
+            f"🧭 <i>Статус: Восстановлено из архива</i>"
+        )
+
+        # Возвращаем стандартную клавиатуру управления
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text=f"🔗 На {source_title.split()[-1]}", url=original_url
+                    ),
+                    InlineKeyboardButton(text="❌ Удалить", callback_data="delete_msg"),
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="⭐️ В семейный чат", callback_data="share_family"
+                    )
+                ],
+            ]
+        )
+
+        await callback.message.edit_text(
+            text=restored_text, parse_mode="HTML", reply_markup=keyboard
+        )
+        await callback.answer("Объявление восстановлено")
+    except Exception as e:
+        logging.error(f"[Bot] Ошибка восстановления сообщения: {e}")
+        await callback.answer(
+            "Не удалось полностью восстановить текст", show_alert=True
+        )
 
 
 @router.callback_query(F.data == "share_family")
@@ -60,8 +166,6 @@ async def share_family_callback(callback: CallbackQuery):
         return
 
     try:
-        # Пересылаем копию сообщения с сохранением всего красивого HTML-форматирования
-        # Но убираем кнопки управления (удалить/переслать), чтобы в семейном чате они не путались
         await bot.send_message(
             chat_id=FAMILY_CHAT_ID, text=callback.message.html_text, parse_mode="HTML"
         )
