@@ -2,6 +2,7 @@ import asyncio
 import logging
 import sys
 import random
+import re
 from logging.handlers import RotatingFileHandler
 
 from config.settings import (
@@ -24,8 +25,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 stdout_handler = logging.StreamHandler(sys.stdout)
 stdout_handler.setLevel(logging.INFO)
 
-# 🔥 НАСТРОЙКА ЛОГ-РОТАЦИИ ДЛЯ errors.log
-# Файл будет весить максимум 5 МБ, и бот будет хранить не более 3 старых копий.
+# НАСТРОЙКА ЛОГ-РОТАЦИИ ДЛЯ errors.log
 file_handler = RotatingFileHandler(
     "errors.log",
     mode="a",
@@ -40,6 +40,28 @@ logging.basicConfig(
     format="%(asctime)s - [%(levelname)s] - %(name)s - %(message)s",
     handlers=[stdout_handler, file_handler],
 )
+
+
+def format_large_area(title_text: str) -> str:
+    """
+    🔥 ЮЗАБИЛИТИ: Находит в заголовке площадь (например, "59,8 м²" или "72.5 м²")
+    и выделяет её жирным шрифтом, если она БОЛЬШЕ 65 кв.м.
+    """
+    # Ищем паттерн площади: число (с запятой или точкой) + пробелы + м²
+    match = re.search(r"(\d+[\.,]?\d*)\s*м²", title_text)
+    if match:
+        area_str = match.group(1)
+        # Заменяем запятую на точку для корректной конвертации во float
+        try:
+            area_val = float(area_str.replace(",", "."))
+            if area_val > 65.0:
+                # Если площадь больше 65, оборачиваем всю подстроку (включая м²) в тег <b>
+                old_substring = match.group(0)
+                new_substring = f"<b>{old_substring}</b>"
+                return title_text.replace(old_substring, new_substring)
+        except ValueError:
+            pass
+    return title_text
 
 
 async def avito_parser_worker():
@@ -60,11 +82,14 @@ async def avito_parser_worker():
                                 f"[Worker] Авито: найдено {len(new_items)} новых объявлений!"
                             )
                             for item in new_items:
-                                # 🟢 СТИЛЬНЫЙ ВИЗУАЛ АВИТО
+                                # 🔥 Применяем форматирование площади к заголовку
+                                formatted_title = format_large_area(item["title"])
+
+                                # СТИЛЬНЫЙ ВИЗУАЛ АВИТО
                                 msg = (
                                     f"🟢 <b>[Новое на Авито]</b>\n"
                                     f"───────────────────\n"
-                                    f"🏢 <b>Объект:</b> {item['title']}\n"
+                                    f"🏢 <b>Объект:</b> {formatted_title}\n"
                                     f"💰 <b>Стоимость:</b> <code>{item['price']} ₽</code>\n"
                                     f"───────────────────\n"
                                     f"🧭 <i>Статус: Доступно для связи</i>"
@@ -139,11 +164,14 @@ async def cyan_parser_worker():
                                 f"[Worker] Циан: найдено {len(new_items)} новых объявлений!"
                             )
                             for item in new_items:
-                                # 🔷 СТИЛЬНЫЙ ВИЗУАЛ ЦИАН
+                                # 🔥 Применяем форматирование площади к заголовку
+                                formatted_title = format_large_area(item["title"])
+
+                                # СТИЛЬНЫЙ ВИЗУАЛ ЦИАН
                                 msg = (
                                     f"🔷 <b>[Новое на Циан]</b>\n"
                                     f"───────────────────\n"
-                                    f"🏢 <b>Объект:</b> {item['title']}\n"
+                                    f"🏢 <b>Объект:</b> {formatted_title}\n"
                                     f"💰 <b>Стоимость:</b> <code>{item['price']} ₽</code>\n"
                                     f"───────────────────\n"
                                     f"🧭 <i>Статус: Свежее предложение</i>"
