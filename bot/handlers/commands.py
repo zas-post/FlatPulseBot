@@ -29,13 +29,9 @@ async def cmd_start(message: Message):
 async def delete_msg_callback(callback: CallbackQuery):
     """🔥 ЮЗАБИЛИТИ: Сворачивает карточку в красивую информативную строку с кнопкой восстановления"""
     try:
-        old_html = callback.message.html_text or ""
         old_text = callback.message.text or ""
-
-        # Определяем источник
         source = "Авито" if "Авито" in old_text else "Циан"
 
-        # Извлекаем заголовок объекта (количество комнат и площадь) из третьей строки сообщения
         title = "Объект"
         price = "Цена по запросу"
 
@@ -46,17 +42,11 @@ async def delete_msg_callback(callback: CallbackQuery):
             if "Стоимость:" in line:
                 price = line.replace("Стоимость:", "").strip()
 
-        # Формируем компактный, но очень читаемый текст
         archived_text = (
             f"⚪️ <b>Объявление скрыто</b> (<i>{source} / {title} / {price}</i>)"
         )
 
-        # Прячем старый HTML-текст прямо в callback_data кнопки восстановления!
-        # Telegram ограничивает callback_data до 64 байт, поэтому весь текст туда не влезет.
-        # Чтобы обойти это ограничение без баз данных, мы оставим оригинальный URL в кнопке,
-        # изменив разметку, либо сделаем чистый инлайн-переключатель.
-
-        # Самый надежный способ вернуть всё назад: извлекаем URL из первой кнопки старой клавиатуры
+        # Вытаскиваем оригинальную ссылку из кнопки "На Авито/Циан"
         original_url = ""
         if (
             callback.message.reply_markup
@@ -64,7 +54,6 @@ async def delete_msg_callback(callback: CallbackQuery):
         ):
             original_url = callback.message.reply_markup.inline_keyboard[0][0].url
 
-        # Создаем кнопку «Восстановить», в которую зашьем только источник и цену, чтобы не перегрузить лимит
         inline_back = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
@@ -96,14 +85,11 @@ async def delete_msg_callback(callback: CallbackQuery):
 async def restore_msg_callback(callback: CallbackQuery):
     """🔥 ЮЗАБИЛИТИ: Восстанавливает стандартный шаблон сообщения, если скрыли случайно"""
     try:
-        # Из callback_data понимаем, какой это был источник
         source_type = callback.data.split("_")[1]
         source_title = "Новое на Авито" if source_type == "avito" else "Новое на Циан"
         emoji = "🟢" if source_type == "avito" else "🔷"
 
-        # Вытаскиваем параметры из нашей же свернутой строчки
         current_text = callback.message.text or ""
-        # Строка выглядит так: "Объявление скрыто (Авито / 2-к. квартира, 54 м² / 6 500 000 ₽)"
         try:
             parts = current_text.split("/")
             title = parts[1].strip()
@@ -112,7 +98,6 @@ async def restore_msg_callback(callback: CallbackQuery):
             title = "Квартира"
             price = "Цена по запросу"
 
-        # Извлекаем ссылку обратно из кнопки, которая сейчас на экране
         original_url = ""
         if (
             callback.message.reply_markup
@@ -120,17 +105,15 @@ async def restore_msg_callback(callback: CallbackQuery):
         ):
             original_url = callback.message.reply_markup.inline_keyboard[0][0].url
 
-        # Собираем исходный красивый шаблон обратно
         restored_text = (
             f"{emoji} <b>[{source_title}]</b>\n"
             f"───────────────────\n"
             f"🏢 <b>Объект:</b> {title}\n"
             f"💰 <b>Стоимость:</b> <code>{price}</code>\n"
             f"───────────────────\n"
-            f"🧭 <i>Статус: Восстановлено из архива</i>"
+            f"🧭 <i>Статус: Доступно для связи</i>"
         )
 
-        # Возвращаем стандартную клавиатуру управления
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
@@ -160,14 +143,49 @@ async def restore_msg_callback(callback: CallbackQuery):
 
 @router.callback_query(F.data == "share_family")
 async def share_family_callback(callback: CallbackQuery):
-    """Пересылка выбранного объявления в семейный чат"""
+    """⭐️ ИСПРАВЛЕНО: Безопасная отправка HTML со всеми ссылками и жирным шрифтом"""
     if not FAMILY_CHAT_ID:
         await callback.answer("⚠️ Семейный чат не настроен в .env!", show_alert=True)
         return
 
     try:
+        # Получаем исходный HTML текст сообщения (сохраняя жирность площади)
+        html_text = callback.message.html_text
+
+        # Извлекаем ссылку на агрегатор из кнопки
+        original_url = ""
+        if (
+            callback.message.reply_markup
+            and callback.message.reply_markup.inline_keyboard
+        ):
+            original_url = callback.message.reply_markup.inline_keyboard[0][0].url
+
+        if original_url:
+            source_name = "Авито" if "Авито" in html_text else "Циан"
+
+            # Находим технические строки статуса (как оригинальные, так и из восстановленных карточек)
+            status_line_1 = "🧭 <i>Статус: Доступно для связи</i>"
+            status_line_2 = "🧭 <i>Статус: Восстановлено из архива</i>"
+
+            # Ссылка, которую мы подставим взамен статуса
+            link_html = (
+                f"🔗 <b><a href='{original_url}'>Посмотреть на {source_name}</a></b>"
+            )
+
+            # Мягко заменяем подстроку, не нарушая общую структуру HTML
+            if status_line_1 in html_text:
+                html_text = html_text.replace(status_line_1, link_html)
+            elif status_line_2 in html_text:
+                html_text = html_text.replace(status_line_2, link_html)
+            else:
+                # Если статус изменён или не найден, просто дописываем ссылку в конец
+                html_text += f"\n\n{link_html}"
+
         await bot.send_message(
-            chat_id=FAMILY_CHAT_ID, text=callback.message.html_text, parse_mode="HTML"
+            chat_id=FAMILY_CHAT_ID,
+            text=html_text,
+            parse_mode="HTML",
+            disable_web_page_preview=False,
         )
         await callback.answer("⭐️ Успешно отправлено в семейный чат!")
     except Exception as e:
