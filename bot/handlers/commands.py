@@ -143,16 +143,16 @@ async def restore_msg_callback(callback: CallbackQuery):
 
 @router.callback_query(F.data == "share_family")
 async def share_family_callback(callback: CallbackQuery):
-    """⭐️ ИСПРАВЛЕНО: Безопасная отправка HTML со всеми ссылками и жирным шрифтом"""
+    """⭐️ ИСПРАВЛЕНО БЕЗ ИЗМЕНЕНИЯ СТРУКТУРЫ: Полная стабильная отправка сообщения со всеми ссылками"""
     if not FAMILY_CHAT_ID:
         await callback.answer("⚠️ Семейный чат не настроен в .env!", show_alert=True)
         return
 
     try:
-        # Получаем исходный HTML текст сообщения (сохраняя жирность площади)
+        # Берём исходный HTML текст сообщения ОДНОЙ строкой (сохраняем регулярку площади на 100%)
         html_text = callback.message.html_text
 
-        # Извлекаем ссылку на агрегатор из кнопки
+        # Извлекаем ссылку на Авито/Циан из первой кнопки
         original_url = ""
         if (
             callback.message.reply_markup
@@ -160,26 +160,12 @@ async def share_family_callback(callback: CallbackQuery):
         ):
             original_url = callback.message.reply_markup.inline_keyboard[0][0].url
 
+        # Ничего не режем и не сплитим! Просто добавляем ссылку новой строкой вниз
         if original_url:
             source_name = "Авито" if "Авито" in html_text else "Циан"
-
-            # Находим технические строки статуса (как оригинальные, так и из восстановленных карточек)
-            status_line_1 = "🧭 <i>Статус: Доступно для связи</i>"
-            status_line_2 = "🧭 <i>Статус: Восстановлено из архива</i>"
-
-            # Ссылка, которую мы подставим взамен статуса
-            link_html = (
-                f"🔗 <b><a href='{original_url}'>Посмотреть на {source_name}</a></b>"
+            html_text += (
+                f"\n🔗 <b><a href='{original_url}'>Посмотреть на {source_name}</a></b>"
             )
-
-            # Мягко заменяем подстроку, не нарушая общую структуру HTML
-            if status_line_1 in html_text:
-                html_text = html_text.replace(status_line_1, link_html)
-            elif status_line_2 in html_text:
-                html_text = html_text.replace(status_line_2, link_html)
-            else:
-                # Если статус изменён или не найден, просто дописываем ссылку в конец
-                html_text += f"\n\n{link_html}"
 
         await bot.send_message(
             chat_id=FAMILY_CHAT_ID,
