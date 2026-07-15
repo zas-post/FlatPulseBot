@@ -1,16 +1,9 @@
-import os
-import time
-
-# 🔥 ПРИНУДИТЕЛЬНАЯ СИНХРОНИЗАЦИЯ ВРЕМЕНИ: Устанавливаем московское время на уровне Python
-os.environ["TZ"] = "Europe/Moscow"
-if hasattr(time, "tzset"):
-    time.tzset()
-
 import asyncio
 import logging
 import sys
 import random
 import re
+from datetime import datetime, timedelta, timezone
 from logging.handlers import RotatingFileHandler
 
 from config.settings import (
@@ -29,6 +22,15 @@ from bot.handlers.commands import router as commands_router
 from aiogram.exceptions import TelegramForbiddenError
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
+
+# 🔥 ГАРАНТИРОВАННЫЙ МОСКОВСКИЙ ЧАСОВОЙ ПОЯС (UTC+3) ДЛЯ ЛОГОВ ПОД ЛЮБЫМ DOCKER/PROXMOX
+def moscow_time_converter(*args):
+    # Берем текущее время по UTC и прибавляем строго 3 часа
+    utc_dt = datetime.now(timezone.utc)
+    moscow_dt = utc_dt + timedelta(hours=3)
+    return moscow_dt.timetuple()
+
+
 # Настройка вывода логов в консоль Docker
 stdout_handler = logging.StreamHandler(sys.stdout)
 stdout_handler.setLevel(logging.INFO)
@@ -42,6 +44,9 @@ file_handler = RotatingFileHandler(
     encoding="utf-8",
 )
 file_handler.setLevel(logging.ERROR)
+
+# Принудительно заменяем конвертер времени в стандартном логгере
+logging.Formatter.converter = moscow_time_converter
 
 logging.basicConfig(
     level=logging.INFO,
