@@ -41,6 +41,9 @@ logging.basicConfig(
     handlers=[stdout_handler, file_handler],
 )
 
+# 🔥 ГЛОБАЛЬНЫЙ БЛОКИРОВЩИК ДЛЯ РАЗДЕЛЕНИЯ ПОТОКОВ CHROME
+chrome_lock = asyncio.Lock()
+
 
 def format_large_area(title_text: str) -> str:
     """
@@ -69,74 +72,87 @@ async def avito_parser_worker():
     scraper = AvitoScraper()
     while True:
         if TARGET_AVITO_URL:
-            logging.info("[Worker] Запуск плановой проверки Авито...")
-            for attempt in range(1, 4):
-                try:
-                    raw_listings = await asyncio.to_thread(
-                        scraper.parse, TARGET_AVITO_URL
-                    )
-                    if raw_listings:
-                        new_items = filter_new_listings(raw_listings, source="avito")
-                        if new_items:
-                            logging.info(
-                                f"[Worker] Авито: найдено {len(new_items)} новых объявлений!"
-                            )
-                            for item in new_items:
-                                # 🔥 Применяем форматирование площади к заголовку
-                                formatted_title = format_large_area(item["title"])
+            # Ждем освобождения Chrome, если запущен другой парсер
+            if chrome_lock.locked():
+                logging.info(
+                    "[Worker] Авито ожидает, пока освободится Chrome-драйвер..."
+                )
 
-                                # СТИЛЬНЫЙ ВИЗУАЛ АВИТО
-                                msg = (
-                                    f"🟢 <b>[Новое на Авито]</b>\n"
-                                    f"───────────────────\n"
-                                    f"🏢 <b>Объект:</b> {formatted_title}\n"
-                                    f"💰 <b>Стоимость:</b> <code>{item['price']} ₽</code>\n"
-                                    f"───────────────────\n"
-                                    f"🧭 <i>Статус: Доступно для связи</i>"
+            async with chrome_lock:
+                logging.info("[Worker] Запуск плановой проверки Авито...")
+                for attempt in range(1, 4):
+                    try:
+                        raw_listings = await asyncio.to_thread(
+                            scraper.parse, TARGET_AVITO_URL
+                        )
+                        if raw_listings:
+                            new_items = filter_new_listings(
+                                raw_listings, source="avito"
+                            )
+                            if new_items:
+                                logging.info(
+                                    f"[Worker] Авито: найдено {len(new_items)} новых объявлений!"
                                 )
-                                keyboard = InlineKeyboardMarkup(
-                                    inline_keyboard=[
-                                        [
-                                            InlineKeyboardButton(
-                                                text="🔗 На Авито", url=item["url"]
-                                            ),
-                                            InlineKeyboardButton(
-                                                text="❌ Удалить",
-                                                callback_data="delete_msg",
-                                            ),
-                                        ],
-                                        [
-                                            InlineKeyboardButton(
-                                                text="⭐️ В семейный чат",
-                                                callback_data="share_family",
+                                for item in new_items:
+                                    # 🔥 Применяем форматирование площади к заголовку
+                                    formatted_title = format_large_area(item["title"])
+
+                                    # СТИЛЬНЫЙ ВИЗУАЛ АВИТО
+                                    msg = (
+                                        f"🟢 <b>[Новое на Авито]</b>\n"
+                                        f"───────────────────\n"
+                                        f"🏢 <b>Объект:</b> {formatted_title}\n"
+                                        f"💰 <b>Стоимость:</b> <code>{item['price']} ₽</code>\n"
+                                        f"───────────────────\n"
+                                        f"🧭 <i>Статус: Доступно для связи</i>"
+                                    )
+                                    keyboard = InlineKeyboardMarkup(
+                                        inline_keyboard=[
+                                            [
+                                                InlineKeyboardButton(
+                                                    text="🔗 На Авито", url=item["url"]
+                                                ),
+                                                InlineKeyboardButton(
+                                                    text="❌ Удалить",
+                                                    callback_data="delete_msg",
+                                                ),
+                                            ],
+                                            [
+                                                InlineKeyboardButton(
+                                                    text="⭐️ В семейный чат",
+                                                    callback_data="share_family",
+                                                )
+                                            ],
+                                        ]
+                                    )
+                                    for user_id in ADMIN_IDS:
+                                        try:
+                                            await bot.send_message(
+                                                chat_id=user_id,
+                                                text=msg,
+                                                parse_mode="HTML",
+                                                reply_markup=keyboard,
                                             )
-                                        ],
-                                    ]
+                                        except TelegramForbiddenError:
+                                            pass
+                                        except Exception as e:
+                                            logging.error(
+                                                f"[Worker] Ошибка отправки Авито пользователю {user_id}: {e}"
+                                            )
+                            else:
+                                logging.info(
+                                    "[Worker] Авито: новых объявлений не найдено."
                                 )
-                                for user_id in ADMIN_IDS:
-                                    try:
-                                        await bot.send_message(
-                                            chat_id=user_id,
-                                            text=msg,
-                                            parse_mode="HTML",
-                                            reply_markup=keyboard,
-                                        )
-                                    except TelegramForbiddenError:
-                                        pass
-                                    except Exception as e:
-                                        logging.error(
-                                            f"[Worker] Ошибка отправки Авито пользователю {user_id}: {e}"
-                                        )
-                        else:
-                            logging.info("[Worker] Авито: новых объявлений не найдено.")
-                    break
-                except Exception as e:
-                    logging.error(f"[Worker] Авито: Ошибка на попытке {attempt}: {e}")
-                    if attempt < 3:
-                        await asyncio.sleep(10)
+                        break
+                    except Exception as e:
+                        logging.error(
+                            f"[Worker] Авито: Ошибка на попытке {attempt}: {e}"
+                        )
+                        if attempt < 3:
+                            await asyncio.sleep(15)
 
         avito_sleep = AVITO_CHECK_INTERVAL + random.randint(-120, 120)
-        avito_sleep = max(60, avito_sleep)
+        avito_sleep = max(120, avito_sleep)
         logging.info(
             f"[Worker] Авито уходит в сон на {avito_sleep} сек (~{round(avito_sleep/60, 1)} min)..."
         )
@@ -146,82 +162,93 @@ async def avito_parser_worker():
 async def cyan_parser_worker():
     """Фоновый воркер для периодического парсинга Циан со случайным интервалом"""
     logging.info("[Worker] Ожидание разделения потоков на старте для Циан...")
-    await asyncio.sleep(15)
+    await asyncio.sleep(20)
 
     scraper = CyanScraper()
     while True:
         if TARGET_CYAN_URL:
-            logging.info("[Worker] Запуск плановой проверки Циан...")
-            for attempt in range(1, 4):
-                try:
-                    raw_listings = await asyncio.to_thread(
-                        scraper.parse, TARGET_CYAN_URL
-                    )
-                    if raw_listings:
-                        new_items = filter_new_listings(raw_listings, source="cyan")
-                        if new_items:
-                            logging.info(
-                                f"[Worker] Циан: найдено {len(new_items)} новых объявлений!"
-                            )
-                            for item in new_items:
-                                # 🔥 Применяем форматирование площади к заголовку
-                                formatted_title = format_large_area(item["title"])
+            # Ждем освобождения Chrome, если запущен другой парсер
+            if chrome_lock.locked():
+                logging.info(
+                    "[Worker] Циан ожидает, пока освободится Chrome-драйвер..."
+                )
 
-                                # СТИЛЬНЫЙ ВИЗУАЛ ЦИАН
-                                msg = (
-                                    f"🔷 <b>[Новое на Циан]</b>\n"
-                                    f"───────────────────\n"
-                                    f"🏢 <b>Объект:</b> {formatted_title}\n"
-                                    f"💰 <b>Стоимость:</b> <code>{item['price']} ₽</code>\n"
-                                    f"───────────────────\n"
-                                    f"🧭 <i>Статус: Свежее предложение</i>"
-                                )
-                                keyboard = InlineKeyboardMarkup(
-                                    inline_keyboard=[
-                                        [
-                                            InlineKeyboardButton(
-                                                text="🔗 На Циан", url=item["url"]
-                                            ),
-                                            InlineKeyboardButton(
-                                                text="❌ Удалить",
-                                                callback_data="delete_msg",
-                                            ),
-                                        ],
-                                        [
-                                            InlineKeyboardButton(
-                                                text="⭐️ В семейный чат",
-                                                callback_data="share_family",
-                                            )
-                                        ],
-                                    ]
-                                )
-                                for user_id in ADMIN_IDS:
-                                    try:
-                                        await bot.send_message(
-                                            chat_id=user_id,
-                                            text=msg,
-                                            parse_mode="HTML",
-                                            reply_markup=keyboard,
-                                        )
-                                    except TelegramForbiddenError:
-                                        pass
-                                    except Exception as e:
-                                        logging.error(
-                                            f"[Worker] Ошибка отправки Циан пользователю {user_id}: {e}"
-                                        )
-                        else:
-                            logging.info("[Worker] Циан: новых объявлений не найдено.")
-                    break
-                except Exception as e:
-                    logging.error(f"[Worker] Циан: Ошибка на попытке {attempt}: {e}")
-                    if attempt < 3:
-                        logging.info(
-                            "[Worker] Ожидание 10 секунд перед повторной попыткой Циан..."
+            async with chrome_lock:
+                logging.info("[Worker] Запуск плановой проверки Циан...")
+                for attempt in range(1, 4):
+                    try:
+                        raw_listings = await asyncio.to_thread(
+                            scraper.parse, TARGET_CYAN_URL
                         )
-                        await asyncio.sleep(10)
+                        if raw_listings:
+                            new_items = filter_new_listings(raw_listings, source="cyan")
+                            if new_items:
+                                logging.info(
+                                    f"[Worker] Циан: найдено {len(new_items)} новых объявлений!"
+                                )
+                                for item in new_items:
+                                    # 🔥 Применяем форматирование площади к заголовку
+                                    formatted_title = format_large_area(item["title"])
+
+                                    # СТИЛЬНЫЙ ВИЗУАЛ ЦИАН
+                                    msg = (
+                                        f"🔷 <b>[Новое на Циан]</b>\n"
+                                        f"───────────────────\n"
+                                        f"🏢 <b>Объект:</b> {formatted_title}\n"
+                                        f"💰 <b>Стоимость:</b> <code>{item['price']} ₽</code>\n"
+                                        f"───────────────────\n"
+                                        f"🧭 <i>Статус: Свежее предложение</i>"
+                                    )
+                                    keyboard = InlineKeyboardMarkup(
+                                        inline_keyboard=[
+                                            [
+                                                InlineKeyboardButton(
+                                                    text="🔗 На Циан", url=item["url"]
+                                                ),
+                                                InlineKeyboardButton(
+                                                    text="❌ Удалить",
+                                                    callback_data="delete_msg",
+                                                ),
+                                            ],
+                                            [
+                                                InlineKeyboardButton(
+                                                    text="⭐️ В семейный чат",
+                                                    callback_data="share_family",
+                                                )
+                                            ],
+                                        ]
+                                    )
+                                    for user_id in ADMIN_IDS:
+                                        try:
+                                            await bot.send_message(
+                                                chat_id=user_id,
+                                                text=msg,
+                                                parse_mode="HTML",
+                                                reply_markup=keyboard,
+                                            )
+                                        except TelegramForbiddenError:
+                                            pass
+                                        except Exception as e:
+                                            logging.error(
+                                                f"[Worker] Ошибка отправки Циан пользователю {user_id}: {e}"
+                                            )
+                            else:
+                                logging.info(
+                                    "[Worker] Циан: новых объявлений не найдено."
+                                )
+                        break
+                    except Exception as e:
+                        logging.error(
+                            f"[Worker] Циан: Ошибка на попытке {attempt}: {e}"
+                        )
+                        if attempt < 3:
+                            logging.info(
+                                "[Worker] Ожидание 15 секунд перед повторной попыткой Циан..."
+                            )
+                            await asyncio.sleep(15)
 
         cyan_sleep = CYAN_CHECK_INTERVAL + random.randint(-120, 120)
-        cyan_sleep = max(60, cyan_sleep)
+        cyan_sleep = max(120, cyan_sleep)
         logging.info(
             f"[Worker] Циан уходит в сон на {cyan_sleep} сек (~{round(cyan_sleep/60, 1)} min)..."
         )
