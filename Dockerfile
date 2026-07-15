@@ -13,9 +13,9 @@ RUN apt-get update && apt-get install -y \
     # Настраиваем часовой пояс Europe/Moscow
     && ln -fs /usr/share/zoneinfo/Europe/Moscow /etc/localtime \
     && echo "Europe/Moscow" > /etc/timezone \
-    # Добавляем официальный репозиторий Google Chrome и устанавливаем его
-    && wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
-    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/html/sources.list.d/google-chrome.list \
+    # Добавляем официальный репозиторий Google Chrome (по новому стандарту)
+    && curl -fsSL https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/googlechrome-keyring.gpg \
+    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/googlechrome-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
     && apt-get update \
     && apt-get install -y google-chrome-stable --no-install-recommends \
     # Очищаем кэш apt, чтобы образ не весил лишнего
