@@ -1,11 +1,22 @@
+version: '3.8'
+
 services:
-  bot:
-    build: .
+  flat_pulse_bot:
     container_name: flat_pulse_bot
-    restart: always
-    shm_size: '512mb'  # 🔥 Увеличиваем размер разделяемой памяти для стабильной работы Chrome
-    env_file:
-      - .env
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - TZ=Europe/Moscow
     volumes:
-      - ./database:/app/database  # Сохраняем базу данных при перезапусках контейнера
-      - ./errors.log:/app/errors.log  # Пробрасываем лог ошибок для удобного чтения
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - ./database:/app/database
+      - ./errors.log:/app/errors.log
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
