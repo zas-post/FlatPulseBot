@@ -1,30 +1,27 @@
 FROM python:3.12-slim
 
-# Устанавливаем системные зависимости и настраиваем репозиторий Google Chrome
+# Устанавливаем системные зависимости и пакет часовых поясов tzdata
 RUN apt-get update && apt-get install -y \
     wget \
     curl \
     unzip \
     ca-certificates \
     fonts-liberation \
+    tzdata \
     --no-install-recommends \
-    && mkdir -p /etc/apt/keyrings \
-    && curl -fsSL https://dl-ssl.google.com/linux/linux_signing_key.pub > /etc/apt/keyrings/google-chrome.asc \
-    && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.asc] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
-    && apt-get update \
-    && apt-get install -y google-chrome-stable \
+    && ln -fs /usr/share/zoneinfo/Europe/Moscow /etc/localtime \
+    && echo "Europe/Moscow" > /etc/timezone \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Создаем рабочую директорию
+# Устанавливаем системную переменную времени для Python
+ENV TZ=Europe/Moscow
+
 WORKDIR /app
 
-# Копируем и устанавливаем зависимости Python
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копируем проект
 COPY . .
 
-# Запуск приложения
 CMD ["python", "run.py"]
