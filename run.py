@@ -1,3 +1,11 @@
+import os
+import time
+
+# 🔥 ПРИНУДИТЕЛЬНАЯ СИНХРОНИЗАЦИЯ ВРЕМЕНИ: Устанавливаем московское время на уровне Python
+os.environ["TZ"] = "Europe/Moscow"
+if hasattr(time, "tzset"):
+    time.tzset()
+
 import asyncio
 import logging
 import sys
