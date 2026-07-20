@@ -1,102 +1,58 @@
-import time
-import random
 import logging
-from bs4 import BeautifulSoup
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from scrapers.base import BaseScraper
+import random
+import undetected_chromedriver as uc
 
 
-class AvitoScraper(BaseScraper):
-    def _execute_parsing(self, search_url) -> list:
-        driver = None
-        listings = []
+class BaseScraper:
+    def __init__(self):
+        pass
+
+    def get_clean_options(self):
+        """Генерирует новый независимый объект настроек Chrome"""
+        options = uc.ChromeOptions()
+
+        # Основные настройки для стабильности работы Chrome внутри Docker-контейнера
+        options.add_argument("--headless=new")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+
+        # 🚫 Отключаем картинки, чтобы снизить трафик и ускорить загрузку страниц
+        options.add_argument("--blink-settings=imagesEnabled=false")
+
+        # ⚡ Сверхлегкий режим: убираем всё тяжелое и ненужное, чтобы Авито не вешал систему
+        options.add_argument("--disable-features=Translate,UserDataDirProfiles")
+        options.add_argument("--num-raster-threads=2")
+        options.add_argument("--disable-notifications")
+        options.add_argument("--disable-remote-fonts")
+
+        # 🪐 Изолируем порты отладки, чтобы процессы Авито и Циана не мешали друг другу
+        random_port = random.randint(10000, 20000)
+        options.add_argument(f"--remote-debugging-port={random_port}")
+
+        # 🕵️ Маскировка под реального пользователя и очистка кэша
+        options.add_argument("--disable-application-cache")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--crash-dumps-dir=/tmp")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+
+        # Загружаем только DOM-дерево (не дожидаемся загрузки всех тяжелых пикселей рекламы)
+        options.page_load_strategy = "eager"
+        return options
+
+    def get_driver(self):
+        """Возвращает новый экземпляр драйвера с жесткой привязкой к версии Chrome 150 и таймаутом 55 сек"""
         try:
-            driver = self.get_driver()
-            logging.info("[Avito Scraper] Открытие страницы...")
+            current_options = self.get_clean_options()
 
-            # Имитируем реальный переход: сначала заходим на главную Авито, чтобы получить базовые куки
-            try:
-                driver.get("https://www.avito.ru")
-                time.sleep(random.uniform(1.5, 3.0))
-            except Exception:
-                pass  # Если главная не отвечает, не страшно, идем дальше
-
-            # Теперь переходим на саму целевую страницу поиска
-            driver.get(search_url)
-
-            # Даем странице физически "отстояться" и подгрузить скрипты маскировки
-            time.sleep(random.uniform(4.0, 7.0))
-
-            # Ожидание контейнера выдачи (увеличили таймаут до 25 секунд для стабильности)
-            WebDriverWait(driver, 25).until(
-                EC.presence_of_element_located(
-                    (By.XPATH, "//*[@data-marker='catalog-serp']")
-                )
+            # 🔥 startup_timeout=55 дает Docker-серверу время на инициализацию без вылета по ошибке
+            # 🔥 version_main=150 решает проблему 'session not created' и гарантирует стабильную связь с Chrome 150
+            driver = uc.Chrome(
+                options=current_options, startup_timeout=55, version_main=150
             )
 
-            # Плавная имитация чтения страницы человеком перед парсингом
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight / 5);")
-            time.sleep(random.uniform(2.0, 3.5))
-
-            soup = BeautifulSoup(driver.page_source, "html.parser")
-            items = soup.find_all("div", {"data-marker": "item"})
-
-            for item in items:
-                try:
-                    title_tag = item.find("a", {"data-marker": "item-title"})
-                    if not title_tag:
-                        continue
-
-                    title = title_tag.text.strip()
-                    href = title_tag["href"]
-                    url = (
-                        f"https://www.avito.ru{href}" if href.startswith("/") else href
-                    )
-
-                    price_tag = item.find("meta", {"itemprop": "price"})
-                    price = price_tag["content"] if price_tag else "Цена не указана"
-
-                    item_id = item.get("data-item-id", url.split("_")[-1])
-
-                    listings.append(
-                        {
-                            "id": str(item_id),
-                            "title": title,
-                            "price": f"{int(price):,}" if price.isdigit() else price,
-                            "url": url,
-                        }
-                    )
-                except Exception:
-                    continue
-        finally:
-            # 🔥 Жесткое закрытие процесса браузера для очистки дескрипторов файлов
-            if driver:
-                try:
-                    driver.quit()
-                except Exception:
-                    pass
-
-        return listings
-
-    def parse(self, search_url, max_retries=3) -> list:
-        for attempt in range(1, max_retries + 1):
-            try:
-                result = self._execute_parsing(search_url)
-                if result:
-                    return result
-                logging.warning(
-                    f"[Avito Scraper] Попытка {attempt}: Страница открылась, но объявлений не найдено."
-                )
-            except Exception as e:
-                logging.error(f"[Avito Scraper] Ошибка на попытке {attempt}: {e}")
-
-            if attempt < max_retries:
-                # Увеличиваем паузу между ретраями, чтобы IP "остыл"
-                sleep_time = attempt * 20
-                logging.info(
-                    f"[Avito Scraper] Ожидание {sleep_time} сек перед попыткой {attempt + 1}..."
-                )
-                time.sleep(sleep_time)
-        return []
+            # Ставим лимит в 55 секунд на загрузку самой страницы Авито/Циана
+            driver.set_page_load_timeout(55)
+            return driver
+        except Exception as e:
+            logging.error(f"[Base Scraper] Ошибка создания драйвера Chrome: {e}")
+            raise e

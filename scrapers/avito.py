@@ -10,9 +10,10 @@ from scrapers.base import BaseScraper
 
 class AvitoScraper(BaseScraper):
     def _execute_parsing(self, search_url) -> list:
-        driver = self.get_driver()
+        driver = None
         listings = []
         try:
+            driver = self.get_driver()
             logging.info("[Avito Scraper] Открытие страницы...")
 
             # Имитируем реальный переход: сначала заходим на главную Авито, чтобы получить базовые куки
@@ -70,8 +71,12 @@ class AvitoScraper(BaseScraper):
                 except Exception:
                     continue
         finally:
+            # 🔥 Жесткое закрытие процесса браузера для очистки дескрипторов файлов
             if driver:
-                driver.quit()
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
 
         return listings
 
