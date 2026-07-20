@@ -10,6 +10,10 @@ services:
       - .env
     environment:
       - TZ=Europe/Moscow
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
@@ -20,4 +24,3 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-

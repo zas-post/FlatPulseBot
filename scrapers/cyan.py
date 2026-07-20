@@ -98,6 +98,7 @@ class CyanScraper(BaseScraper):
             logging.error(f"[Cyan Scraper] Фатальная ошибка при парсинге страницы: {e}")
             raise e
         finally:
+            # 🔥 Жесткое закрытие процесса браузера для очистки дескрипторов файлов
             if driver:
                 try:
                     driver.quit()
