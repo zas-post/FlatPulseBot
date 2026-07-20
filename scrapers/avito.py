@@ -1,6 +1,7 @@
 import time
 import random
 import logging
+import re
 from bs4 import BeautifulSoup
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -23,13 +24,13 @@ class AvitoScraper(BaseScraper):
             except Exception:
                 pass  # Если главная не отвечает, не страшно, идем дальше
 
-            # Теперь переходим на саму целевую страницу поиска
+            # Переходим на саму целевую страницу поиска
             driver.get(search_url)
 
             # Даем странице физически "отстояться" и подгрузить скрипты маскировки
             time.sleep(random.uniform(4.0, 7.0))
 
-            # Ожидание контейнера выдачи (увеличили таймаут до 25 секунд для стабильности)
+            # Ожидание контейнера выдачи
             WebDriverWait(driver, 25).until(
                 EC.presence_of_element_located(
                     (By.XPATH, "//*[@data-marker='catalog-serp']")
@@ -55,6 +56,32 @@ class AvitoScraper(BaseScraper):
                         f"https://www.avito.ru{href}" if href.startswith("/") else href
                     )
 
+                    # ---------------------------------------------------------------
+                    # 🔥 ЖЕСТКАЯ ПРОВЕРКА МЕТРО / ВРЕМЕНИ ПЕШКОМ
+                    # ---------------------------------------------------------------
+                    geo_block = item.find("div", class_=lambda c: c and "geo-" in c)
+                    if geo_block:
+                        geo_text = geo_block.text.strip().lower()
+
+                        # 1. Если написано "на транспорте" или "на авто" — сразу отбрасываем
+                        if "транспорт" in geo_text or "авто" in geo_text:
+                            logging.debug(
+                                f"[Avito Scraper] Пропущено (на транспорте): {title}"
+                            )
+                            continue
+
+                        # 2. Ищем число минут (например: "18 мин.", "20 мин")
+                        time_match = re.search(r"(\d+)\s*мин", geo_text)
+                        if time_match:
+                            minutes = int(time_match.group(1))
+                            # Если написано больше 15 минут — отбрасываем объявление
+                            if minutes > 15:
+                                logging.debug(
+                                    f"[Avito Scraper] Пропущено ({minutes} мин > 15): {title}"
+                                )
+                                continue
+                    # ---------------------------------------------------------------
+
                     price_tag = item.find("meta", {"itemprop": "price"})
                     price = price_tag["content"] if price_tag else "Цена не указана"
 
@@ -71,7 +98,7 @@ class AvitoScraper(BaseScraper):
                 except Exception:
                     continue
         finally:
-            # 🔥 Жесткое закрытие процесса браузера для очистки дескрипторов файлов
+            # Жесткое закрытие процесса браузера для очистки дескрипторов файлов
             if driver:
                 try:
                     driver.quit()
